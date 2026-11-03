@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AsisBot · prototipo demo (datos ficticios) ────────────────────────────
+// Modelo pensado para migrar después a Postgres/Supabase sin tocar el
+// frontend: mismos endpoints, solo cambia el datasource y DATABASE_URL.
+
+model Zone {
+  id        String   @id @default(cuid())
+  name      String
+  lat       Float
+  lng       Float
+  radiusM   Int // radio de la geocerca en metros
+  address   String? // referencia textual (demo)
+  createdAt DateTime @default(now())
+  workers   Worker[]
+}
+
+model Worker {
+  id            String    @id @default(cuid())
+  name          String
+  rut           String // ficticio, formato demo
+  position      String // cargo
+  phone         String // n° demo usado como identificador en WhatsApp
+  zoneId        String?
+  zone          Zone?     @relation(fields: [zoneId], references: [id])
+  scheduleStart String // "08:00"
+  scheduleEnd   String // "18:00"
+  avatarHue     Int @default(150) // matiz 0-359 para el avatar de iniciales
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  checkins      CheckIn[]
+  consents      Consent[]
+}
+
+model CheckIn {
+  id          String   @id @default(cuid())
+  workerId    String
+  worker      Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  type        String // ENTRADA | SALIDA
+  timestamp   DateTime @default(now())
+  lat         Float?
+  lng         Float?
+  distanceM   Int? // distancia simulada al centro de la zona (m)
+  status      String // APROBADA | EN_REVISION | RECHAZADA | PENDIENTE_SYNC
+  similarity  Int? // puntaje simulado de verificación facial (0-100)
+  selfieKind  String? // referencia | otra | galeria | ninguna
+  reason      String? // motivo en lenguaje simple (brief §5)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  // Marca tolerante a mala señal (mejora §4):
+  pendingSync Boolean  @default(false) // guardada en el teléfono, aún sin señal
+  syncAt      DateTime? // hora de sincronización; null = llegó en línea
+  // Explicación del trabajador en una marca en revisión (mejora §5):
+  workerNote  String?
+  alerts      Alert[]
+  corrections Correction[]
+
+  @@index([workerId, timestamp])
+  @@index([status])
+  @@index([pendingSync])
+}
+
+// Consentimiento informado del trabajador (mejora §1): guardado con fecha y
+// versión del texto. Nadie marca por primera vez sin aceptarlo.
+model Consent {
+  id         String   @id @default(cuid())
+  workerId   String
+  worker     Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  version    String // p.ej. "v1-2026-10"
+  acceptedAt DateTime @default(now())
+
+  @@index([workerId])
+}
+
+// Auditoría de correcciones sin volver a Excel (mejora §2): la marca original
+// nunca se borra; cada cambio queda con quién, cuándo, valor anterior y nuevo.
+model Correction {
+  id          String   @id @default(cuid())
+  checkInId   String
+  checkIn     CheckIn  @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  field       String // timestamp | status
+  oldValue    String
+  newValue    String
+  reason      String
+  correctedBy String
+  correctedAt DateTime @default(now())
+
+  @@index([checkInId])
+}
+
+model Alert {
+  id             String    @id @default(cuid())
+  checkInId      String
+  checkIn        CheckIn   @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  type           String // FUERA_ZONA | SUPLANTACION | DUPLICADA | ATRASO | SIN_UBICACION | SIN_ENTRADA | FOTO_GALERIA | SYNC_TARDE | INCOHERENTE
+  message        String // explicación en lenguaje simple
+  status         String    @default("PENDIENTE") // PENDIENTE | RESUELTA
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, type])
+}
