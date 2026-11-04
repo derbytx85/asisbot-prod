@@ -15,12 +15,24 @@ import type {
   Zone,
 } from "./types";
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    cache: "no-store",
-  });
+async function request<T>(url: string, init?: RequestInit & { timeout?: number }): Promise<T> {
+  const { timeout = 15000, ...rest } = init ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...rest,
+      headers: { "Content-Type": "application/json", ...(rest?.headers ?? {}) },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if ((err as Error).name === "AbortError") throw new Error("Tiempo agotado: la API no respondió.");
+    throw err;
+  }
+  clearTimeout(timer);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(json?.error ?? `Error ${res.status}`);

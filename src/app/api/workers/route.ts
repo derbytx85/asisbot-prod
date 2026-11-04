@@ -28,7 +28,12 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
 
   const { name, rut, position, phone, zoneId, scheduleStart, scheduleEnd, avatarHue } = body;
-  if (!name?.trim() || !position?.trim() || !phone?.trim()) {
+  // Sanitizar inputs (trim + límite de longitud)
+  const sanitizedName = String(name ?? "").trim().slice(0, 80);
+  const sanitizedPosition = String(position ?? "").trim().slice(0, 80);
+  const sanitizedPhone = String(phone ?? "").trim().slice(0, 30);
+  const sanitizedRut = rut ? String(rut).trim().slice(0, 20) : null;
+  if (!sanitizedName || !sanitizedPosition || !sanitizedPhone) {
     return NextResponse.json(
       { error: "Nombre, cargo y teléfono son obligatorios." },
       { status: 400 },
@@ -40,22 +45,29 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // Validar zona si se pasa zoneId
+  if (zoneId) {
+    const zoneExists = await db.zone.findUnique({ where: { id: zoneId } });
+    if (!zoneExists) {
+      return NextResponse.json({ error: "Zona no encontrada." }, { status: 400 });
+    }
+  }
 
   const hue =
-    typeof avatarHue === "number"
-      ? avatarHue
+    typeof avatarHue === "number" && Number.isFinite(avatarHue)
+      ? ((avatarHue % 360) + 360) % 360
       : Math.floor(Math.random() * 360);
 
   const worker = await db.worker.create({
     data: {
-      name: String(name).trim(),
-      rut: rut ? String(rut).trim() : "—",
-      position: String(position).trim(),
-      phone: String(phone).trim(),
+      name: sanitizedName,
+      rut: sanitizedRut ?? "—",
+      position: sanitizedPosition,
+      phone: sanitizedPhone,
       zoneId: zoneId || null,
       scheduleStart,
       scheduleEnd,
-      avatarHue: ((hue % 360) + 360) % 360,
+      avatarHue: hue,
     },
     include: { zone: true },
   });

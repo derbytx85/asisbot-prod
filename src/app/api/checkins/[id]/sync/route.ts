@@ -15,15 +15,23 @@ export const dynamic = "force-dynamic";
 // la hora de sincronización por separado. Si llegó tarde (>30 min), queda
 // "por revisar" con ambas horas visibles.
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  // Verificar ownership: el worker del checkIn debe coincidir con el opcional workerId/zoneId o pertenecer al scope permitido
+  const body = await req.json().catch(() => ({}));
+  const expectedWorkerId = body.workerId ? String(body.workerId) : null;
 
   const pendiente = await db.checkIn.findUnique({
     where: { id },
     include: { worker: { include: { zone: true } } },
   });
+  // Si se pasa workerId en el body, verificar que sea el mismo worker (evita sync de marcas ajenas)
+  if (expectedWorkerId && pendiente?.workerId !== expectedWorkerId) {
+    return NextResponse.json({ error: "Forbidden: la marcación no pertenece al trabajador indicado." }, { status: 403 });
+  }
   if (!pendiente) {
     return NextResponse.json({ error: "Marcación no encontrada." }, { status: 404 });
   }

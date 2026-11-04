@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
   if (workerId) where.workerId = workerId;
   if (status) where.status = status;
 
+  const page = Math.max(1, Number(sp.get("page") ?? 1));
+  const perPage = Math.min(Math.max(Number(sp.get("perPage") ?? 200), 1), 1000);
+  const total = await db.checkIn.count({ where });
   const checkins = await db.checkIn.findMany({
     where,
     include: {
@@ -39,9 +42,10 @@ export async function GET(req: NextRequest) {
       corrections: { orderBy: { correctedAt: "desc" } },
     },
     orderBy: reviewed === "1" ? { reviewedAt: "desc" } : { timestamp: "desc" },
-    take: 200,
+    skip: (page - 1) * perPage,
+    take: perPage,
   });
-  return NextResponse.json({ checkins });
+  return NextResponse.json({ checkins, total, page, perPage });
 }
 
 // POST /api/checkins — marcación simulada desde el chat de WhatsApp.

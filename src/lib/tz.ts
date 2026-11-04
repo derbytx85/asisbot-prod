@@ -4,8 +4,13 @@
 
 export const CHILE_TZ = "America/Santiago";
 
-/** Offset (ms) de la zona horaria `tz` en el instante dado. */
+const offsetCache = new Map<string, number>();
+
+/** Offset (ms) de la zona horaria `tz` en el instante dado. Cacheado por (tz, date). */
 export function tzOffsetMs(date: Date, tz: string = CHILE_TZ): number {
+  const cacheKey = `${tz}:${date.getTime()}`;
+  const cached = offsetCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     year: "numeric",
@@ -27,7 +32,9 @@ export function tzOffsetMs(date: Date, tz: string = CHILE_TZ): number {
     get("minute"),
     get("second"),
   );
-  return asUTC - date.getTime();
+  const offset = asUTC - date.getTime();
+  offsetCache.set(cacheKey, offset);
+  return offset;
 }
 
 /** Componentes de fecha/hora de pared en Chile para un instante. */
