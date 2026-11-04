@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./custom.db"
+  url      = "file:../../db/custom.db"
 }
 
 // ─── AsisBot · prototipo demo (datos ficticios) ────────────────────────────
