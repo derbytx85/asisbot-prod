@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:../../db/custom.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ─── AsisBot · prototipo demo (datos ficticios) ────────────────────────────
