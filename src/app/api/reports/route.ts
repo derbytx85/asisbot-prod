@@ -8,6 +8,24 @@ export const dynamic = "force-dynamic";
 // GET /api/reports?days=7
 // Tabla por trabajador y por día: primera entrada, última salida (aprobadas),
 // horas trabajadas, atraso (min) y alertas del día.
+
+/** Fila de CheckIn tal como la devuelve Supabase (fechas como strings ISO). */
+type ReportCheckIn = {
+  id: string;
+  workerId: string;
+  type: string;
+  timestamp: string;
+  status: string;
+  worker: {
+    id: string;
+    name: string;
+    position: string;
+    avatarHue: number;
+    scheduleStart: string;
+  } | null;
+  alerts: Array<{ type: string; status: string }>;
+};
+
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const days = Math.min(Math.max(Number(sp.get("days") ?? 7), 1), 31);
@@ -16,27 +34,27 @@ export async function GET(req: NextRequest) {
   const start = chileInstant(t.year, t.month, t.day - (days - 1), 0, 0);
   const end = chileInstant(t.year, t.month, t.day + 1, 0, 0);
 
-  const checkins = await db.checkIn.findMany({
-    where: { timestamp: { gte: start, lt: end } },
-    include: {
-      worker: {
-        select: {
-          id: true,
-          name: true,
-          position: true,
-          avatarHue: true,
-          scheduleStart: true,
-        },
-      },
-      alerts: true,
-    },
-    orderBy: { timestamp: "asc" },
-  });
+  const { data, error } = await supabase
+    .from("CheckIn")
+    .select(
+      "*, worker:Worker(id, name, position, avatarHue, scheduleStart), alerts:Alert(*)",
+    )
+    .gte("timestamp", start.toISOString())
+    .lt("timestamp", end.toISOString())
+    .order("timestamp", { ascending: true });
+
+  if (error) {
+    return NextResponse.json(
+      { error: "No se pudo generar el reporte." },
+      { status: 500 },
+    );
+  }
+  const checkins = (data ?? []) as ReportCheckIn[];
 
   // Agrupar por trabajador y día chileno
-  const groups = new Map<string, typeof checkins>();
+  const groups = new Map<string, ReportCheckIn[]>();
   for (const c of checkins) {
-    const key = `${c.workerId}|${chileDayKey(c.timestamp)}`;
+    const key = `${c.workerId}|${chileDayKey(new Date(c.timestamp))}`;
     const list = groups.get(key) ?? [];
     list.push(c);
     groups.set(key, list);
@@ -57,7 +75,9 @@ export async function GET(req: NextRequest) {
 
   for (const [, list] of groups) {
     const first = list[0];
-    const dayKey = chileDayKey(first.timestamp);
+    const worker = first.worker;
+    if (!worker) continue; // sin trabajador asociado no hay fila posible
+    const dayKey = chileDayKey(new Date(first.timestamp));
     const entrada =
       list.find((c) => c.type === "ENTRADA" && c.status !== "RECHAZADA") ?? null;
     const salida =
@@ -67,16 +87,19 @@ export async function GET(req: NextRequest) {
     if (entrada && salida) {
       workedMin = Math.max(
         0,
-        Math.round((salida.timestamp.getTime() - entrada.timestamp.getTime()) / 60000),
+        Math.round(
+          (new Date(salida.timestamp).getTime() - new Date(entrada.timestamp).getTime()) /
+            60000,
+        ),
       );
     }
     let lateMin = 0;
     if (entrada) {
       const hasAtraso = list.flatMap((c) => c.alerts).some((a) => a.type === "ATRASO");
-      if (hasAtraso && first.worker.scheduleStart) {
-        const p = chileParts(entrada.timestamp);
+      if (hasAtraso && worker.scheduleStart) {
+        const p = chileParts(new Date(entrada.timestamp));
         const wallMin = p.hour * 60 + p.minute;
-        lateMin = Math.max(0, wallMin - hhmmToMinutes(first.worker.scheduleStart));
+        lateMin = Math.max(0, wallMin - hhmmToMinutes(worker.scheduleStart));
         if (lateMin <= LATE_TOLERANCE_MIN) lateMin = 0;
       }
     }
@@ -84,10 +107,10 @@ export async function GET(req: NextRequest) {
     rows.push({
       date: dayKey,
       workerId: first.workerId,
-      workerName: first.worker.name,
-      position: first.worker.position,
-      entrada: entrada ? formatHHMM(entrada.timestamp) : null,
-      salida: salida ? formatHHMM(salida.timestamp) : null,
+      workerName: worker.name,
+      position: worker.position,
+      entrada: entrada ? formatHHMM(new Date(entrada.timestamp)) : null,
+      salida: salida ? formatHHMM(new Date(salida.timestamp)) : null,
       workedMin,
       lateMin,
       alertsCount: alertsAll.length,

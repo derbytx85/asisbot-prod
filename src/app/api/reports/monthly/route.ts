@@ -11,6 +11,30 @@ export const dynamic = "force-dynamic";
 // jornada semanal con la referencia 42 h vigente en Chile desde abril 2026.
 // NO liquida sueldos: solo entrega la asistencia ordenada.
 
+/** Fila de CheckIn tal como la devuelve Supabase (fechas como strings ISO). */
+type MonthlyCheckIn = {
+  id: string;
+  workerId: string;
+  type: string;
+  timestamp: string;
+  status: string;
+  pendingSync: boolean | null;
+  worker: {
+    id: string;
+    name: string;
+    position: string;
+    scheduleStart: string;
+    zone: { name: string } | null;
+  } | null;
+  alerts: Array<{ type: string; status: string }>;
+  corrections: Array<{
+    field: string;
+    oldValue: string;
+    newValue: string;
+    reason: string;
+  }>;
+};
+
 function monthRange(month: string) {
   const m = /^(\d{4})-(\d{2})$/.exec(month);
   if (!m) return null;
@@ -43,27 +67,26 @@ export async function GET(req: NextRequest) {
   }
   const { start, end } = range;
 
-  const checkins = await db.checkIn.findMany({
-    where: { timestamp: { gte: start, lt: end } },
-    include: {
-      worker: {
-        select: {
-          id: true,
-          name: true,
-          position: true,
-          scheduleStart: true,
-          zone: { select: { name: true } },
-        },
-      },
-      alerts: true,
-      corrections: true,
-    },
-    orderBy: { timestamp: "asc" },
-  });
+  const { data, error } = await supabase
+    .from("CheckIn")
+    .select(
+      "*, worker:Worker(id, name, position, scheduleStart, zone:Zone(name)), alerts:Alert(*), corrections:Correction(*)",
+    )
+    .gte("timestamp", start.toISOString())
+    .lt("timestamp", end.toISOString())
+    .order("timestamp", { ascending: true });
 
-  const groups = new Map<string, typeof checkins>();
+  if (error) {
+    return NextResponse.json(
+      { error: "No se pudo generar el reporte mensual." },
+      { status: 500 },
+    );
+  }
+  const checkins = (data ?? []) as MonthlyCheckIn[];
+
+  const groups = new Map<string, MonthlyCheckIn[]>();
   for (const c of checkins) {
-    const key = `${c.workerId}|${chileDayKey(c.timestamp)}`;
+    const key = `${c.workerId}|${chileDayKey(new Date(c.timestamp))}`;
     const list = groups.get(key) ?? [];
     list.push(c);
     groups.set(key, list);
@@ -87,7 +110,9 @@ export async function GET(req: NextRequest) {
 
   for (const [, list] of groups) {
     const first = list[0];
-    const dayKey = chileDayKey(first.timestamp);
+    const worker = first.worker;
+    if (!worker) continue; // sin trabajador asociado no hay fila posible
+    const dayKey = chileDayKey(new Date(first.timestamp));
     const synced = list.filter((c) => !c.pendingSync);
     const entrada =
       synced.find((c) => c.type === "ENTRADA" && c.status !== "RECHAZADA") ?? null;
@@ -97,30 +122,33 @@ export async function GET(req: NextRequest) {
     if (entrada && salida) {
       workedMin = Math.max(
         0,
-        Math.round((salida.timestamp.getTime() - entrada.timestamp.getTime()) / 60000),
+        Math.round(
+          (new Date(salida.timestamp).getTime() - new Date(entrada.timestamp).getTime()) /
+            60000,
+        ),
       );
-      const wk = `${first.workerId}|${mondayKey(first.timestamp)}`;
+      const wk = `${first.workerId}|${mondayKey(new Date(first.timestamp))}`;
       weekMap.set(wk, (weekMap.get(wk) ?? 0) + workedMin);
     }
     let lateMin = 0;
     if (entrada) {
       const hasAtraso = list.flatMap((c) => c.alerts).some((a) => a.type === "ATRASO");
-      if (hasAtraso && first.worker.scheduleStart) {
-        const p = chileParts(entrada.timestamp);
+      if (hasAtraso && worker.scheduleStart) {
+        const p = chileParts(new Date(entrada.timestamp));
         const wallMin = p.hour * 60 + p.minute;
-        lateMin = Math.max(0, wallMin - hhmmToMinutes(first.worker.scheduleStart));
+        lateMin = Math.max(0, wallMin - hhmmToMinutes(worker.scheduleStart));
         if (lateMin <= LATE_TOLERANCE_MIN) lateMin = 0;
       }
     }
-    const corrections = list.flatMap((c) => c.corrections);
+    const corrections = list.flatMap((c) => c.corrections ?? []);
     rows.push({
       date: dayKey,
       workerId: first.workerId,
-      workerName: first.worker.name,
-      position: first.worker.position,
-      zoneName: first.worker.zone?.name ?? null,
-      entrada: entrada ? formatHHMM(entrada.timestamp) : null,
-      salida: salida ? formatHHMM(salida.timestamp) : null,
+      workerName: worker.name,
+      position: worker.position,
+      zoneName: worker.zone?.name ?? null,
+      entrada: entrada ? formatHHMM(new Date(entrada.timestamp)) : null,
+      salida: salida ? formatHHMM(new Date(salida.timestamp)) : null,
       workedMin,
       lateMin,
       correctionsCount: corrections.length,
@@ -145,7 +173,7 @@ export async function GET(req: NextRequest) {
   });
   weeks.sort((a, b) => (a.weekStart === b.weekStart ? a.workerName.localeCompare(b.workerName) : a.weekStart.localeCompare(b.weekStart)));
 
-  const correctionsCount = checkins.reduce((n, c) => n + c.corrections.length, 0);
+  const correctionsCount = checkins.reduce((n, c) => n + (c.corrections ?? []).length, 0);
   const generatedAt = new Date().toISOString();
 
   // ── CSV listo para el contador (Excel es-CL: BOM + ';' + CRLF) ──

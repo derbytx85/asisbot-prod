@@ -45,17 +45,12 @@ export function PanelEnVivo({ onVerRevision }: { onVerRevision: () => void }) {
   }
 
   if (isError || !data) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    const errDetail = (error as any)?.stack?.split("\n")[0] ?? null;
     return (
-      <div className="rounded-lg border border-border bg-card p-6" role="alert">
+      <div className="rounded-lg border border-border bg-card p-6">
         <p className="text-[14px] font-medium">No se pudo cargar el panel.</p>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          {error instanceof Error ? error.message : 'Verifica la conexión con la API.'}
+          {error instanceof Error ? error.message : "Verifica la conexión con la API e inténtalo otra vez."}
         </p>
-        {errMsg ? (
-          <pre className="mt-3 rounded-md bg-muted p-3 text-[11px] overflow-auto text-muted-foreground">{errMsg}{"\n"}{errDetail ?? ""}</pre>
-        ) : null}
         <button
           type="button"
           onClick={() => refetch()}

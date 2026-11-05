@@ -32,10 +32,12 @@ function FitBounds({ zones }: { zones: Zone[] }) {
   const map = useMap();
   useEffect(() => {
     if (zones.length === 0) return;
-    const bounds = L.latLngBounds(
-      zones.map((z) => L.latLng(z.lat, z.lng).toBounds(z.radiusM * 2.6)),
-    );
-    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+    let bounds: L.LatLngBounds | null = null;
+    for (const z of zones) {
+      const b = L.latLng(z.lat, z.lng).toBounds(z.radiusM * 2.6);
+      bounds = bounds ? bounds.extend(b) : b;
+    }
+    if (bounds) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
   }, [zones, map]);
   return null;
 }

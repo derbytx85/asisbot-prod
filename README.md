@@ -9,14 +9,17 @@ panel de RR.HH.
 > datos personales reales. Los indicadores de impacto son **metas proyectadas**, no
 > resultados observados.
 
-## Cómo correrlo (3 pasos)
+## Cómo correrlo (4 pasos)
 
 ```bash
-bun install          # 1. dependencias
-bun run db:push      # 2. crear la base SQLite + cliente Prisma
-bun prisma/seed.ts   # 3. datos semilla ficticios (8 trabajadores, 2 zonas, 7 días)
-bun run dev          # y levantar la app en http://localhost:3000
+bun install                        # 1. dependencias
+cp .env.example .env               # 2. credenciales de Supabase (URL + service_role)
+bun run dev                        # 3. levantar la app en http://localhost:3000
+curl -X POST localhost:3000/api/demo/reset   # 4. datos semilla ficticios (8 trabajadores, 2 zonas, 7 días)
 ```
+
+El seed corre contra Supabase desde `POST /api/demo/reset` (borra y recrea los datos
+ficticios de la demo; también está disponible como botón en la UI).
 
 ## Qué incluye
 
@@ -37,7 +40,7 @@ bun run dev          # y levantar la app en http://localhost:3000
 |------|----------------|
 | Frontend | Next.js 16 (App Router) + React 19 + TypeScript + Tailwind 4 + shadcn/ui |
 | API simulada | Route handlers bajo `src/app/api/*` (endpoints bien definidos, reemplazables por un backend real) |
-| Datos | Prisma + SQLite (`db/custom.db`) con datos semilla en `src/lib/seed-data.ts` |
+| Datos | Supabase (PostgREST vía `@supabase/supabase-js`) con datos semilla en `src/lib/seed-data.ts` |
 | Motor de verificación | `src/lib/attendance.ts` (haversine, similitud facial simulada, duplicadas, atrasos) |
 | Mapa | react-leaflet + CARTO/OSM (gratuito, sin API key) |
 
@@ -51,14 +54,15 @@ Emil Kowalski (animación, sonner). Pre-flight check aplicado: sin gradientes, s
 sombras en reposo, sin KPI-tiles con iconos, sin zebra, color solo en datos (~3%),
 botón primario casi negro, cifras tabulares, estados vacíos/rellenos honestos.
 
-### Migración futura (Supabase u otro backend)
+### Pasar a producción (WhatsApp + biometría real)
 
-El frontend solo consume `/api/*`. Para pasar a producción:
+El frontend solo consume `/api/*` y la base ya está en Supabase:
 
-1. Cambiar el datasource de Prisma a Postgres y apuntar `DATABASE_URL` a Supabase.
-2. Reemplazar los route handlers por el backend real (mismos contratos JSON).
-3. Conectar WhatsApp Cloud API y un motor biométrico real en el punto donde el
+1. Reemplazar los route handlers por el backend real (mismos contratos JSON) o
+   dejarlos como capa de acceso con autenticación propia.
+2. Conectar WhatsApp Cloud API y un motor biométrico real en el punto donde el
    prototipo simula (`src/lib/attendance.ts`).
+3. Aplicar RLS en Supabase: hoy el acceso usa `service_role` solo del lado servidor.
 
 ## Notas de privacidad (visibles en la app)
 

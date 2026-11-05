@@ -3,22 +3,12 @@ import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/corrections — historial de correcciones (mejora §2, auditoría).
-// Quién corrigió, cuándo, valor anterior, valor nuevo y motivo.
 export async function GET() {
-  const corrections = await db.correction.findMany({
-    include: {
-      checkIn: {
-        select: {
-          id: true,
-          type: true,
-          timestamp: true,
-          worker: { select: { id: true, name: true, avatarHue: true, position: true } },
-        },
-      },
-    },
-    orderBy: { correctedAt: "desc" },
-    take: 50,
-  });
+  const { data: corrections, error } = await supabase
+    .from("Correction")
+    .select("*, checkIn:CheckIn(id,type,timestamp,worker:Worker(id,name,avatarHue,position))")
+    .order("correctedAt", { ascending: false })
+    .limit(50);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ corrections });
 }

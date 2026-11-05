@@ -184,3 +184,25 @@ Stage Summary:
   §5 Anti-trampa honesto: galería/duplicada/fuera de zona generan alertas distintas, trabajador comenta, ninguna alerta sanciona sola, contador de FP visible (real, no inventado), sin promesas de "fraude cero"
 - Fuera de alcance respetado: sin liquidación, sin rastreo continuo, sin hardware, sin ERP, sin multiempresa
 - Migración futura intacta: contratos API estables, solo Prisma+SQLite en demo
+
+## 2026-11-05 · Migración Prisma/SQLite → Supabase
+
+Task ID: migracion-supabase
+Agent: Z.ai Code
+Task: Dejar el proyecto 100% libre de Prisma, con Supabase como única capa de datos
+
+Work Log:
+- src/lib/supabase.ts: cliente único @supabase/supabase-js con NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (server-only, persistSession off)
+- 15/18 rutas API migradas a supabase.from("CheckIn"/"Worker"/"Zone"/"Alert"/"Consent"/"Correction") con embeds PostgREST (worker:Worker(*), alerts:Alert(*), corrections:Correction(*)); fechas como strings ISO (contratos UI de types.ts intactos)
+- Rutas migradas en esta pasada final (quedaban en Prisma): GET /api/reports, GET /api/reports/monthly (json+csv), GET /api/mandante; el filtro por relación de Prisma (worker.zoneId+active) se reemplazó por .in("workerId", ids) sobre trabajadores ya filtrados; conversiones Date(new Date(ts)) para formatHHMM/chileDayKey/chileParts
+- Seed: src/lib/seed-data.ts firmado como seedDemoData(db: SupabaseClient), expuesto en POST /api/demo/reset (borra y recrea en orden de dependencias)
+- Eliminado: prisma/ (schema.prisma, seed.ts), db/custom.db (SQLite), src/lib/db.ts (singleton PrismaClient)
+- package.json: fuera @prisma/client + prisma y scripts db:push/db:generate/db:migrate/db:reset; dentro @supabase/supabase-js ^2.45
+- .env.example: DATABASE_URL → NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY; README actualizado (pasos de corrida con seed vía API, tabla de arquitectura, notas de producción/RLS)
+- grep -i prisma en src/ = 0 coincidencias; build de producción verificado
+
+Stage Summary:
+- PRISMA ELIMINADO POR COMPLETO: sin dependencias, sin schema, sin cliente, sin SQLite
+- Supabase es la única capa de datos; contratos JSON de /api/* intactos, frontend sin cambios funcionales
+- Nombres de tabla/columnas conservados (Zone/Worker/CheckIn/Consent/Correction/Alert, camelCase) para no tocar queries ni UI
+- Pendiente del entorno: crear las tablas en Supabase con esos nombres exactos (con FKs workerId→Worker.id, checkInId→CheckIn.id, zoneId→Zone.id) y definir RLS antes de producción

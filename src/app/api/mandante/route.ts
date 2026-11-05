@@ -10,6 +10,30 @@ export const dynamic = "force-dynamic";
 // ausentes, atrasos y evidencia de presencia por instalación y día.
 // SOLO LECTURA y sin datos sensibles: no expone RUT, teléfono ni historial
 // completo del trabajador; solo la asistencia del día en esa instalación.
+
+/** Filas tal como las devuelve Supabase (fechas como strings ISO). */
+type MandanteWorker = {
+  id: string;
+  name: string;
+  position: string;
+  scheduleStart: string;
+  scheduleEnd: string;
+};
+
+type MandanteCheckIn = {
+  workerId: string;
+  type: string;
+  timestamp: string;
+  status: string;
+  lat: number | null;
+  lng: number | null;
+  distanceM: number | null;
+  similarity: number | null;
+  pendingSync: boolean | null;
+  syncAt: string | null;
+  alerts: Array<{ type: string; status: string }>;
+};
+
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const zoneId = sp.get("zoneId");
@@ -25,29 +49,54 @@ export async function GET(req: NextRequest) {
     day = chileToday();
   }
 
-  const zone = await db.zone.findUnique({ where: { id: zoneId } });
-  if (!zone) {
+  const { data: zone, error: zoneError } = await supabase
+    .from("Zone")
+    .select("id, name, address")
+    .eq("id", zoneId)
+    .single();
+  if (zoneError || !zone) {
     return NextResponse.json({ error: "Instalación no encontrada." }, { status: 404 });
   }
 
   const start = chileInstant(day.year, day.month, day.day, 0, 0);
   const end = chileInstant(day.year, day.month, day.day + 1, 0, 0);
 
-  const workers = await db.worker.findMany({
-    where: { zoneId, active: true },
-    orderBy: { name: "asc" },
-  });
+  const { data: workersData, error: workersError } = await supabase
+    .from("Worker")
+    .select("id, name, position, scheduleStart, scheduleEnd")
+    .eq("zoneId", zoneId)
+    .eq("active", true)
+    .order("name", { ascending: true });
+  if (workersError) {
+    return NextResponse.json(
+      { error: "No se pudo generar el reporte del mandante." },
+      { status: 500 },
+    );
+  }
+  const workers = (workersData ?? []) as MandanteWorker[];
 
-  const checkins = await db.checkIn.findMany({
-    where: {
-      timestamp: { gte: start, lt: end },
-      worker: { zoneId, active: true },
-    },
-    include: { alerts: true },
-    orderBy: { timestamp: "asc" },
-  });
+  // Marcaciones del día solo de esos trabajadores (misma condición:
+  // trabajador de la zona + activo).
+  let checkins: MandanteCheckIn[] = [];
+  const workerIds = workers.map((w) => w.id);
+  if (workerIds.length > 0) {
+    const { data: checkinsData, error: checkinsError } = await supabase
+      .from("CheckIn")
+      .select("*, alerts:Alert(*)")
+      .in("workerId", workerIds)
+      .gte("timestamp", start.toISOString())
+      .lt("timestamp", end.toISOString())
+      .order("timestamp", { ascending: true });
+    if (checkinsError) {
+      return NextResponse.json(
+        { error: "No se pudo generar el reporte del mandante." },
+        { status: 500 },
+      );
+    }
+    checkins = (checkinsData ?? []) as MandanteCheckIn[];
+  }
 
-  const byWorker = new Map<string, typeof checkins>();
+  const byWorker = new Map<string, MandanteCheckIn[]>();
   for (const c of checkins) {
     const list = byWorker.get(c.workerId) ?? [];
     list.push(c);
@@ -74,7 +123,7 @@ export async function GET(req: NextRequest) {
     if (entrada) {
       const hasAtraso = list.flatMap((c) => c.alerts).some((a) => a.type === "ATRASO");
       if (hasAtraso) {
-        const p = chileParts(entrada.timestamp);
+        const p = chileParts(new Date(entrada.timestamp));
         lateMin = Math.max(0, p.hour * 60 + p.minute - hhmmToMinutes(w.scheduleStart));
         if (lateMin <= LATE_TOLERANCE_MIN) lateMin = 0;
       }
@@ -87,21 +136,21 @@ export async function GET(req: NextRequest) {
       scheduleStart: w.scheduleStart,
       scheduleEnd: w.scheduleEnd,
       estado,
-      entrada: entrada ? formatHHMM(entrada.timestamp) : null,
-      salida: salida ? formatHHMM(salida.timestamp) : null,
+      entrada: entrada ? formatHHMM(new Date(entrada.timestamp)) : null,
+      salida: salida ? formatHHMM(new Date(salida.timestamp)) : null,
       lateMin,
       evidencia: list
         .filter((c) => c.status !== "RECHAZADA")
         .map((c) => ({
           type: c.type as "ENTRADA" | "SALIDA",
-          timestamp: c.timestamp.toISOString(),
+          timestamp: c.timestamp,
           status: c.status,
           distanceM: c.distanceM,
           similarity: c.similarity,
           // ubicación aproximada (~110 m) para no exponer la posición exacta
           latApprox: c.lat !== null ? Math.round(c.lat * 1000) / 1000 : null,
           lngApprox: c.lng !== null ? Math.round(c.lng * 1000) / 1000 : null,
-          syncAt: c.syncAt ? c.syncAt.toISOString() : null,
+          syncAt: c.syncAt ?? null,
         })),
     };
   });
