@@ -51,7 +51,7 @@ export function PanelEnVivo({ onVerRevision }: { onVerRevision: () => void }) {
       <div className="rounded-lg border border-border bg-card p-6" role="alert">
         <p className="text-[14px] font-medium">No se pudo cargar el panel.</p>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          Verifica la conexión con la API e inténtalo otra vez.
+          {error instanceof Error ? error.message : 'Verifica la conexión con la API.'}
         </p>
         {errMsg ? (
           <pre className="mt-3 rounded-md bg-muted p-3 text-[11px] overflow-auto text-muted-foreground">{errMsg}{"\n"}{errDetail ?? ""}</pre>

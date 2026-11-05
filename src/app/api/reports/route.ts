@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 import { chileInstant, chileToday, chileParts } from "@/lib/tz";
 import { chileDayKey, hhmmToMinutes, formatHHMM, LATE_TOLERANCE_MIN } from "@/lib/attendance";
 

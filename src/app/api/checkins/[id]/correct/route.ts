@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { supabase } from "@/lib/supabase";
 import { REVIEWER, formatHHMM } from "@/lib/attendance";
 
 export const dynamic = "force-dynamic";

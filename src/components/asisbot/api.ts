@@ -1,43 +1,19 @@
-// Cliente de la API simulada. Los endpoints están definidos para poder
-// reemplazarlos después por un backend real (o Supabase) sin tocar la UI.
-
-import type {
-  Alert,
-  CheckIn,
-  Correction,
-  DashboardData,
-  FpSummary,
-  MandanteData,
-  MonthlyRow,
-  MonthlyWeekRow,
-  ReportRow,
-  Worker,
-  Zone,
-} from "./types";
-
-async function request<T>(url: string, init?: RequestInit & { timeout?: number }): Promise<T> {
-  const { timeout = 15000, ...rest } = init ?? {};
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  let res: Response;
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10000)
   try {
-    res = await fetch(url, {
-      ...rest,
-      headers: { "Content-Type": "application/json", ...(rest?.headers ?? {}) },
-      cache: "no-store",
+    const res = await fetch(url, {
+      ...init,
       signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if ((err as Error).name === "AbortError") throw new Error("Tiempo agotado: la API no respondió.");
-    throw err;
+      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      cache: 'no-store',
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json?.error ?? `Error ${res.status}`)
+    return json as T
+  } finally {
+    clearTimeout(timer)
   }
-  clearTimeout(timer);
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(json?.error ?? `Error ${res.status}`);
-  }
-  return json as T;
 }
 
 // ─── Dashboard ──────────────────────────────────────────────────────────────
