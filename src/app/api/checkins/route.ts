@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { evaluateCheckIn, type CheckType, type SelfieKind } from "@/lib/attendance";
-import { analyzeCheckIn } from "@/lib/ai";
+import { analyzeCheckIn } from "@/lib/agent";
 import { chileInstant, chileToday } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
@@ -104,8 +104,9 @@ export async function POST(req: NextRequest) {
     if (alert) createdAlerts.push(alert);
   }
 
-  // Análisis con IA real (Gemini) o simulado si no hay clave / no responde.
-  // Nunca bloquea la marcación: como máximo 15 s y con respaldo determinista.
+  // Análisis con el agente de AsisBot (motor propio por defecto; Gemini
+  // opcional con AI_ENGINE=gemini). Nunca bloquea la marcación: como
+  // máximo 15 s y con respaldo del agente propio.
   const ai = await analyzeCheckIn({
     workerName: worker.name,
     type: type as CheckType,

@@ -1,16 +1,16 @@
-// ─── AsisBot · Análisis con IA real (Gemini, plan gratuito) ─────────────────
+// ─── AsisBot · Motor Gemini (OPCIONAL) ───────────────────────────────────────
+// Este es solo UNO de los motores que puede usar el agente de AsisBot
+// (ver src/lib/agent.ts). El motor por defecto es el agente propio de
+// reglas, que no necesita clave ni llamadas externas. Gemini solo se usa
+// si AI_ENGINE=gemini y hay clave configurada.
+//
 // La verificación facial sigue siendo SIMULADA (ver attendance.ts): las
 // selfies de la demo son ilustraciones, no fotos reales, así que ninguna IA
-// puede comparar rostros con ellas. Lo que la IA real SÍ hace aquí:
+// puede comparar rostros con ellas. Lo que un motor hace aquí:
 //
 //   1. Explicar en lenguaje claro por qué una marcación quedó en revisión
 //      (qué alertas, qué significan, qué debe mirar el supervisor).
 //   2. Sugerir la acción recomendada para RR.HH.
-//
-// Si no hay clave (GEMINI_API_KEY), si el modelo no responde o si se acaba
-// el cupo gratuito, el análisis cae al modo SIMULADO: una explicación
-// determinista armada con las mismas alertas. La demo nunca se rompe por
-// culpa de la IA. La IA sugiere; la decisión final siempre es humana.
 //
 // Configuración (.env):
 //   GEMINI_API_KEY=...   clave gratuita de Google AI Studio (aistudio.google.com)
@@ -33,7 +33,7 @@ const MODEL_CANDIDATES = [
   "gemini-flash-latest",
 ].filter((m): m is string => Boolean(m));
 
-export type AISource = "gemini" | "simulado";
+export type AnalysisSource = "propio" | "gemini";
 
 export interface CheckInAnalysisInput {
   workerName: string;
@@ -48,16 +48,16 @@ export interface CheckInAnalysisInput {
 }
 
 export interface CheckInAnalysis {
-  source: AISource;
+  source: AnalysisSource;
   /** Explicación en lenguaje claro para el supervisor (2-3 frases). */
   explanation: string;
   /** Acción recomendada para RR.HH. (una frase). */
   suggestion: string;
-  /** Modelo que respondió, o null en modo simulado. */
+  /** Modelo que respondió, o null en el agente propio. */
   model: string | null;
 }
 
-/** ¿Hay clave configurada? Sin clave, todo es simulado. */
+/** ¿Hay clave de Gemini configurada? Sin clave, ese motor no está disponible. */
 export function isAIEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
 }
@@ -82,19 +82,6 @@ function buildPrompt(input: CheckInAnalysisInput): string {
     "Responde SOLO con un JSON válido, sin markdown ni texto extra, con esta forma exacta:",
     '{"explanation": "2-3 frases", "suggestion": "una frase con la acción recomendada"}',
   ].join("\n");
-}
-
-/** Explicación determinista cuando no hay IA disponible (modo simulado). */
-export function simulatedAnalysis(input: CheckInAnalysisInput): CheckInAnalysis {
-  const explanation =
-    input.alerts.length === 0
-      ? `Marcación ${input.type.toLowerCase()} correcta para ${input.workerName}: ${input.reason}`
-      : `La marcación de ${input.workerName} quedó en revisión por: ${input.alerts.map((a) => a.message).join(" ")}`;
-  const suggestion =
-    input.status === "APROBADA"
-      ? "No requiere acción."
-      : "Un supervisor debe revisar esta marcación y aprobarla o rechazarla con motivo.";
-  return { source: "simulado", explanation, suggestion, model: null };
 }
 
 async function callGemini(
@@ -150,17 +137,17 @@ async function callGemini(
 }
 
 /**
- * Analiza una marcación ya evaluada con la IA real. Nunca lanza errores:
- * si no hay clave o Gemini no responde, devuelve el análisis simulado.
- * `budgetMs` limita el tiempo total que se le da a la IA (por defecto 30 s);
- * cada intento de modelo recibe como máximo lo que quede del presupuesto.
+ * Intenta el análisis con Gemini. Devuelve null si no hay clave o si
+ * Gemini no responde: el llamador cae al agente propio (ver agent.ts).
+ * `budgetMs` limita el tiempo total (por defecto 30 s); cada intento de
+ * modelo recibe como máximo lo que quede del presupuesto.
  */
-export async function analyzeCheckIn(
+export async function geminiAnalysis(
   input: CheckInAnalysisInput,
   budgetMs = 30000,
-): Promise<CheckInAnalysis> {
+): Promise<CheckInAnalysis | null> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return simulatedAnalysis(input);
+  if (!apiKey) return null;
 
   const prompt = buildPrompt(input);
   const deadline = Date.now() + budgetMs;
@@ -172,5 +159,5 @@ export async function analyzeCheckIn(
       return { source: "gemini", explanation: out.explanation, suggestion: out.suggestion, model };
     }
   }
-  return simulatedAnalysis(input);
+  return null;
 }

@@ -3,19 +3,19 @@ import {
   analyzeCheckIn,
   isAIEnabled,
   type CheckInAnalysisInput,
-} from "@/lib/ai";
+} from "@/lib/agent";
 import type { CheckStatus, CheckType } from "@/lib/attendance";
 
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/ai/analyze — explica una marcación ya evaluada con la IA real
- * (Gemini, plan gratuito) o con el análisis simulado si no hay clave o la
- * IA no responde. La IA sugiere; nunca decide. No guarda nada en la base.
+ * POST /api/ai/analyze — explica una marcación ya evaluada con el agente
+ * de AsisBot (motor propio de reglas por defecto; Gemini opcional con
+ * AI_ENGINE=gemini). El agente sugiere; nunca decide. No guarda nada.
  *
  * Body: { workerName, type, status, reason, alerts, distanceM, similarity,
  *         zoneName, scheduleStart }
- * Respuesta: { source: "gemini" | "simulado", explanation, suggestion, model }
+ * Respuesta: { source: "propio" | "gemini", explanation, suggestion, model }
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
