@@ -3,6 +3,9 @@
 Control de asistencia laboral por WhatsApp (prototipo: simulador web, sin WhatsApp real): el trabajador marca
 entrada/salida con un mensaje, comparte ubicación y envía una selfie; reglas deterministas simulan la verificación y generan alertas;
 las marcaciones en revisión las decide una persona en el panel de RR.HH.; las normales y las duplicadas se deciden automáticamente según las reglas del motor.
+Desde el 2026-11-07, una IA real (Gemini, plan gratuito de Google AI Studio) explica en lenguaje claro por qué una marcación quedó en revisión
+y sugiere qué debe revisar el supervisor; la IA solo sugiere, la decisión sigue siendo humana. La verificación facial sigue siendo simulada:
+las selfies de la demo son ilustraciones, no fotos reales.
 
 > **Seguridad (estado actual):** no hay autenticación ni autorización en ningún endpoint, incluido `POST /api/demo/reset`, que borra y recrea todos los datos. El acceso a Supabase usa la `service_role` key del lado servidor, por lo que las políticas RLS no protegen nada mientras las rutas sigan usando ese cliente.
 
@@ -10,7 +13,7 @@ las marcaciones en revisión las decide una persona en el panel de RR.HH.; las n
 > datos personales reales. Los indicadores de impacto son **metas proyectadas**, no
 > resultados observados.
 
-Prerrequisitos: Bun instalado (este repo usa `bun.lock`; hay también un `package-lock.json` de npm que debe eliminarse para fijar un solo gestor). Versión mínima de Bun: por confirmar. Se necesita un proyecto Supabase con las 6 tablas ya creadas (`Zone`, `Worker`, `CheckIn`, `Consent`, `Correction`, `Alert`) — el repositorio no incluye migraciones ni scripts SQL. La URL y la `service_role` key se obtienen en Supabase → Project Settings → API (ver `.env.example`).
+Prerrequisitos: Bun instalado (este repo usa `bun.lock`; hay también un `package-lock.json` de npm que debe eliminarse para fijar un solo gestor). Versión mínima de Bun: por confirmar. Se necesita un proyecto Supabase con las 6 tablas ya creadas (`Zone`, `Worker`, `CheckIn`, `Consent`, `Correction`, `Alert`) — el repositorio no incluye migraciones ni scripts SQL. La URL y la `service_role` key se obtienen en Supabase → Project Settings → API (ver `.env.example`). IA real (opcional): clave gratuita de Google AI Studio (`GEMINI_API_KEY`, ver `.env.example`); sin clave, el análisis de marcaciones usa el modo simulado y la demo sigue igual.
 
 ## Cómo correrlo (5 pasos)
 
@@ -33,6 +36,7 @@ Nota: el historial de 7 días incluye casos especiales que se solapan con las ma
 - **Simulador WhatsApp** — flujo del trabajador (entrada/salida, ubicación, selfie ilustrada) con los 7 casos clicables del simulador ([brief](upload/brief-para-ia-prototipo-verifystaff.md)): elegir trabajador, ubicación y selfie y pulsar «Marcar entrada» (hora simulada). El motor evalúa 10 tipos de alerta.
 - **Panel** — dotación de hoy con líneas de jornada (franja de horario de cada trabajador con sus marcas de entrada y salida), KPIs (Presentes, En revisión, Ausentes, Jornada terminada, Alertas pendientes y marcas sin señal) y mapa con geocercas (Leaflet + tiles abiertos, sin API key). Se actualiza por sondeo cada 15 s.
 - **Cola de revisión** — aprobar/rechazar con motivo; las decisiones de aprobación/rechazo quedan auditadas (usuario, fecha, nota).
+- **Análisis con IA real** — `POST /api/ai/analyze` (Gemini, plan gratuito): explica en lenguaje claro por qué una marcación quedó en revisión y sugiere la acción para RR.HH. Cada marcación nueva trae su análisis en el campo `ai` de la respuesta de `POST /api/checkins`. Sin clave o si Gemini no responde, usa el modo simulado. La IA no compara rostros ni decide: la verificación facial sigue siendo simulada.
 - **Alertas** — filtro por tipo y estado, resolución con nota.
 - **Trabajadores y Zonas** — zonas: crear y listar; trabajadores: crear, listar, editar y desactivar (sin eliminar) (admin demo).
 - **Reportes** — jornadas por trabajador/día con exportación a CSV.
@@ -59,9 +63,10 @@ Flujos: **consentimiento** (`POST /api/consent`, versión `v1-2026-10`; sin cons
 | API simulada | Route handlers bajo `src/app/api/*` (sin documentar formalmente; el contrato de facto es `src/components/asisbot/api.ts` + `types.ts`), reemplazables por un backend real | existente |
 | Datos | Supabase (PostgREST vía `@supabase/supabase-js`) con datos semilla en `src/lib/seed-data.ts` | existente |
 | Motor de verificación | `src/lib/attendance.ts` (reglas deterministas que simulan la verificación: haversine, similitud facial simulada con hash determinista, duplicadas, atrasos) | existente |
+| Análisis con IA | `src/lib/ai.ts` + `POST /api/ai/analyze` (Gemini, plan gratuito de Google AI Studio; modelo `gemini-3-flash-preview`, con respaldo a `gemini-3.5-flash` y `gemini-flash-latest`) — explica marcaciones ya evaluadas y sugiere la acción para RR.HH.; `POST /api/checkins` devuelve el análisis en el campo `ai`. Sin `GEMINI_API_KEY` o si Gemini no responde, cae al modo simulado. | existente |
 | Mapa | react-leaflet + tiles directos de OpenStreetMap (sin API key en esta demo) | existente |
 
-Contratos y datos: no existe OpenAPI ni esquema documentado. Modelo de datos: 6 tablas (`Zone`, `Worker`, `CheckIn`, `Consent`, `Correction`, `Alert`; ver `.env.example`). Flujo: mensaje del trabajador → `POST /api/checkins` → `evaluateCheckIn()` en `src/lib/attendance.ts` → panel/cola de revisión. `GET /api` devuelve un placeholder `{ message: "Hello, world!" }` sin documentar.
+Contratos y datos: no existe OpenAPI ni esquema documentado. Modelo de datos: 6 tablas (`Zone`, `Worker`, `CheckIn`, `Consent`, `Correction`, `Alert`; ver `.env.example`). Flujo: mensaje del trabajador → `POST /api/checkins` → `evaluateCheckIn()` en `src/lib/attendance.ts` → análisis con IA (`ai` en la respuesta, `src/lib/ai.ts`) → panel/cola de revisión. `GET /api` devuelve un placeholder `{ message: "Hello, world!" }` sin documentar.
 
 Reglas del motor (`src/lib/attendance.ts`): similitud mínima 75% (`SIMILARITY_THRESHOLD`), duplicada < 5 min (`DUPLICATE_WINDOW_MIN`), tolerancia de atraso 10 min (`LATE_TOLERANCE_MIN`), coherencia de ubicación 2000 m / 90 min (`COHERENCE_DISTANCE_M` / `COHERENCE_WINDOW_MIN`), sincronización tardía > 30 min (`SYNC_LATE_THRESHOLD_MIN`), consentimiento `v1-2026-10`. Todos los umbrales son placeholders sin validación contra un motor biométrico real. Tipos de alerta: duplicada, sin selfie, foto de galería, posible suplantación, sin ubicación, fuera de zona, atraso, sin entrada, ubicación incoherente y sincronización tardía. Fechas: `src/lib/tz.ts` (`chileParts`, `America/Santiago`) es el punto de verdad de «hoy». Limitación conocida: GPS con ±50–100 m de error en interiores frente a radios de 200–250 m; sin defensa contra mock-location.
 
@@ -98,3 +103,4 @@ Lo siguiente NO es un plan ejecutable: son las decisiones pendientes para pasar 
 - Banner permanente: demo con datos ficticios; en producción se requiere autorización de la empresa y del trabajador. El mecanismo existe en la demo: consentimiento versionado (`POST /api/consent`, `CONSENT_VERSION = "v1-2026-10"`); sin consentimiento, `POST /api/checkins` devuelve 403 `CONSENT_REQUIRED`. Antes de un piloto, validar el consentimiento requerido con asesoría legal (Ley 19.628, datos biométricos sensibles). Retención de selfies/ubicaciones, revocación y borrado: no definidos todavía.
 - Las selfies de la demo son **ilustraciones generadas**; no se almacenan datos
   biométricos.
+- La IA real no recibe ni compara fotos de rostros: solo recibe el resultado ya evaluado (alertas, distancia, similitud simulada) y lo explica en texto.
