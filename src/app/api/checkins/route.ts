@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { evaluateCheckIn, type CheckType, type SelfieKind } from "@/lib/attendance";
+import { analyzeCheckIn } from "@/lib/ai";
 import { chileInstant, chileToday } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
@@ -103,5 +104,19 @@ export async function POST(req: NextRequest) {
     if (alert) createdAlerts.push(alert);
   }
 
-  return NextResponse.json({ checkin: { ...checkin, worker: { id: worker.id, name: worker.name, avatarHue: worker.avatarHue, position: worker.position } }, alerts: createdAlerts, result: { status: result.status, reason: result.reason, similarity: result.similarity, distanceM: result.distanceM } }, { status: 201 });
+  // Análisis con IA real (Gemini) o simulado si no hay clave / no responde.
+  // Nunca bloquea la marcación: como máximo 15 s y con respaldo determinista.
+  const ai = await analyzeCheckIn({
+    workerName: worker.name,
+    type: type as CheckType,
+    status: result.status,
+    reason: result.reason,
+    alerts: result.alerts,
+    distanceM: result.distanceM,
+    similarity: result.similarity,
+    zoneName: worker.zone ? worker.zone.name : null,
+    scheduleStart: worker.scheduleStart,
+  }, 15000);
+
+  return NextResponse.json({ checkin: { ...checkin, worker: { id: worker.id, name: worker.name, avatarHue: worker.avatarHue, position: worker.position } }, alerts: createdAlerts, result: { status: result.status, reason: result.reason, similarity: result.similarity, distanceM: result.distanceM }, ai }, { status: 201 });
 }
